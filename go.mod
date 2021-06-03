@@ -1,3 +1,5 @@
-module Blockchain-in-Golang
+module github.com/HTaeha/Blockchain-in-Golang
 
 go 1.16
+
+require github.com/dgraph-io/badger/v3 v3.2011.1 // indirect

@@ -1,9 +1,10 @@
 package blockchain
 
-// BlockChain structure
-type BlockChain struct {
-	Blocks []*Block
-}
+import (
+	"bytes"
+	"encoding/gob"
+	"log"
+)
 
 // Block structure
 type Block struct {
@@ -27,19 +28,39 @@ func CreateBlock(data string, prevHash []byte) *Block {
 	return block
 }
 
-// AddBlock : data의 값을 가지는 블록을 추가한다.
-func (chain *BlockChain) AddBlock(data string) {
-	prevBlock := chain.Blocks[len(chain.Blocks)-1]
-	new := CreateBlock(data, prevBlock.Hash)
-	chain.Blocks = append(chain.Blocks, new)
-}
-
 // Genesis : 체인의 맨 처음 블록이다. prevHash 값이 비어있다.
 func Genesis() *Block {
 	return CreateBlock("Genesis", []byte{})
 }
 
-// InitBlockChain : Genesis 블록을 시작으로 하는 블록체인을 생성한다.
-func InitBlockChain() *BlockChain {
-	return &BlockChain{[]*Block{Genesis()}}
+// Serialize : BadgerDB 에 값을 넣기 위해 byte배열로 바꿔준다.
+func (b *Block) Serialize() []byte {
+	var res bytes.Buffer
+	encoder := gob.NewEncoder(&res)
+
+	err := encoder.Encode(b)
+
+	Handle(err)
+
+	return res.Bytes()
+}
+
+// Deserialize : data를 decoding 해서 Block객체로 바꿔준다.
+func Deserialize(data []byte) *Block {
+	var block Block
+
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+
+	err := decoder.Decode(&block)
+
+	Handle(err)
+
+	return &block
+}
+
+// Handle : Error handling.
+func Handle(err error) {
+	if err != nil {
+		log.Panic(err)
+	}
 }
