@@ -8,22 +8,26 @@ import (
 
 // Block structure
 type Block struct {
-	Hash     []byte
-	Data     []byte
-	PrevHash []byte
-	Nonce    int
+	Hash       []byte
+	Data       []byte
+	PrevHash   []byte
+	Nonce      int
+	Difficulty int
 }
 
 // CreateBlock : data와 prevHash를 받아서 새로운 Hash를 생성한 블록을 생성한다.
+// difficulty를 조절한다. 여기서는 그냥 고정값으로 넣었다.
 func CreateBlock(data string, prevHash []byte) *Block {
-	block := &Block{[]byte{}, []byte(data), prevHash, 0}
+	difficulty := 12
+	block := &Block{[]byte{}, []byte(data), prevHash, 0, difficulty}
 
 	// PoW 조건에 맞는 블록을 생성한다.
 	pow := NewProof(block)
-	nonce, hash := pow.Run()
+	nonce, hash := pow.Run(difficulty)
 
 	block.Hash = hash[:]
 	block.Nonce = nonce
+	block.Difficulty = difficulty
 
 	return block
 }

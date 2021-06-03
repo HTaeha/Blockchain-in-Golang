@@ -23,7 +23,7 @@ import (
 
 // Difficulty : 채굴하기 위한 문제의 난이도.
 // 256bit 중에 Difficulty만큼의 0을 찾는다.
-const Difficulty = 12
+// const Difficulty = 12
 
 // ProofOfWork structure
 type ProofOfWork struct {
@@ -38,7 +38,7 @@ func NewProof(b *Block) *ProofOfWork {
 	// Left shift : 아래 식의 결과는 2^(256-Difficulty)가 된다.
 	// target은 전체 256비트 중에 왼쪽에 Difficulty-1 만큼의 0이 존재한다. (2진수)
 	// 아래 값보다 작은 값이면 0이 Difficulty만큼 존재하는 것이기 때문에 정답이다.
-	target.Lsh(target, uint(256-Difficulty))
+	target.Lsh(target, uint(256-b.Difficulty))
 
 	pow := &ProofOfWork{b, target}
 
@@ -46,8 +46,7 @@ func NewProof(b *Block) *ProofOfWork {
 }
 
 // InitData : PrevHash, Data, nonce, Difficulty 를 합쳐 데이터를 만든다.
-// 이 부분에서 Difficulty를 같이 넣어서 data를 만드는 것이 이해되지 않는다. Difficulty를 빼도 영향이 없지 않을까?
-func (pow *ProofOfWork) InitData(nonce int) []byte {
+func (pow *ProofOfWork) InitData(nonce, Difficulty int) []byte {
 	data := bytes.Join(
 		[][]byte{
 			pow.Block.PrevHash,
@@ -62,7 +61,8 @@ func (pow *ProofOfWork) InitData(nonce int) []byte {
 }
 
 // Run : 정답을 찾아 nonce, hash 값을 반환한다.
-func (pow *ProofOfWork) Run() (int, []byte) {
+// difficulty의 값이 클수록 난이도가 어려워진다. (run이 오래 걸린다.)
+func (pow *ProofOfWork) Run(difficulty int) (int, []byte) {
 	var intHash big.Int
 	var hash [32]byte
 
@@ -70,7 +70,7 @@ func (pow *ProofOfWork) Run() (int, []byte) {
 
 	// MaxInt64 == 2^63 - 1
 	for nonce < math.MaxInt64 {
-		data := pow.InitData(nonce)
+		data := pow.InitData(nonce, difficulty)
 		hash = sha256.Sum256(data)
 
 		fmt.Printf("\r%x", hash)
@@ -94,7 +94,7 @@ func (pow *ProofOfWork) Validate() bool {
 	var intHash big.Int
 
 	// Block의 Nonce값을 이용해 hash 값을 재현한다.
-	data := pow.InitData(pow.Block.Nonce)
+	data := pow.InitData(pow.Block.Nonce, pow.Block.Difficulty)
 
 	hash := sha256.Sum256(data)
 	intHash.SetBytes(hash[:])
