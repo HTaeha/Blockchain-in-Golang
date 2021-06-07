@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -11,15 +13,15 @@ import (
 )
 
 // CommandLine : CommandLine으로 원하는 동작을 실행시킬 수 있도록 한다.
-type CommandLine struct {
-	blockchain *blockchain.BlockChain
-}
+type CommandLine struct{}
 
 // printUsage : print cli의 사용법을 알려준다.
 func (cli *CommandLine) printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println(" add -block BLOCK_DATA - add a block to the chain")
-	fmt.Println(" print - Prints the blocks in the chain")
+	fmt.Println(" getbalance -address ADDRESS - get the balance for an address")
+	fmt.Println(" createblockchain -address ADRESS creates a blockchain and sends genesis reward to address")
+	fmt.Println(" printchain - Prints the blocks in the chain")
+	fmt.Println(" send -from FROM -to TO -amount AMOUNT - Send amount of coins")
 }
 
 // validateArgs : Argument를 검증한다.
@@ -33,22 +35,29 @@ func (cli *CommandLine) validateArgs() {
 	}
 }
 
-// addBlock : cli를 통해 블록을 추가한다.
-func (cli *CommandLine) addBlock(data string) {
-	cli.blockchain.AddBlock(data)
-	fmt.Println("Added Block!")
-}
-
 // printChain : 블록체인에서 마지막부터 첫번째 블록 내용을 출력한다.
 func (cli *CommandLine) printChain() {
-	iter := cli.blockchain.Iterator()
+	chain := blockchain.ContinueBlockChain("")
+	defer chain.Database.Close()
+	iter := chain.Iterator()
 
 	for {
 		block := iter.Next()
 
 		fmt.Printf("Previous Hash: %x\n", block.PrevHash)
-		fmt.Printf("Data: %s\n", block.Data)
 		fmt.Printf("Hash: %x\n", block.Hash)
+		for _, tx := range block.Transactions {
+			txID := hex.EncodeToString(tx.ID)
+			fmt.Printf("Transaction ID : %s\n", txID)
+			fmt.Println("Transactions Inputs")
+			for _, in := range tx.Inputs {
+				fmt.Printf("ID: %x, Out: %d, Sig: %s\n", in.ID, in.Out, in.Sig)
+			}
+			fmt.Println("Transactions Outputs")
+			for _, out := range tx.Outputs {
+				fmt.Printf("Value: %d, PubKey: %s\n", out.Value, out.PubKey)
+			}
+		}
 
 		// Validate 과정은 매우 빠르게 처리된다.
 		pow := blockchain.NewProof(block)
@@ -61,52 +70,116 @@ func (cli *CommandLine) printChain() {
 	}
 }
 
+// createBlockChain : 블록체인을 생성. (첫 블록체인)
+func (cli *CommandLine) createBlockChain(address string) {
+	chain := blockchain.InitBlockChain(address)
+	chain.Database.Close()
+	fmt.Println("Finished!")
+}
+
+// getBalance : 해당 address가 가지고 있는 코인 갯수를 보여준다.
+func (cli *CommandLine) getBalance(address string) {
+	chain := blockchain.ContinueBlockChain(address)
+	defer chain.Database.Close()
+
+	balance := 0
+
+	// address의 사용하지 않은 output들.
+	UTXOs := chain.FindUTXO(address)
+
+	for _, out := range UTXOs {
+		balance += out.Value
+	}
+
+	fmt.Printf("Balance of %s: %d\n", address, balance)
+}
+
+// send : from이 to에게 amount만큼의 코인을 보낸다.
+func (cli *CommandLine) send(from, to string, amount int) {
+	chain := blockchain.ContinueBlockChain(from)
+	defer chain.Database.Close()
+
+	// 새로운 transaction을 만들어 코인을 보낼 내용을 입력한다.
+	// 해당 transaction을 담을 새로운 블록을 생성해서 추가한다.
+	newTx := blockchain.NewTransaction(from, to, amount, chain)
+	chain.AddBlock([]*blockchain.Transaction{newTx})
+	fmt.Println("Successful send")
+}
+
 // run Command Line Interface.
 func (cli *CommandLine) run() {
 	cli.validateArgs()
 
-	addBlockCmd := flag.NewFlagSet("add", flag.ExitOnError)
-	printChainCmd := flag.NewFlagSet("print", flag.ExitOnError)
-	addBlockData := addBlockCmd.String("block", "", "Block data")
+	getBalanceCmd := flag.NewFlagSet("getbalance", flag.ExitOnError)
+	createBlockchainCmd := flag.NewFlagSet("createblockchain", flag.ExitOnError)
+	sendCmd := flag.NewFlagSet("send", flag.ExitOnError)
+	printChainCmd := flag.NewFlagSet("printchain", flag.ExitOnError)
+
+	getBalanceAddress := getBalanceCmd.String("address", "", "The address to get balance for")
+	createBlockahinAddress := createBlockchainCmd.String("address", "", "The address to send genesis block reward to")
+	sendFrom := sendCmd.String("from", "", "Source wallet address")
+	sendTo := sendCmd.String("to", "", "Destination wallet address")
+	sendAmount := sendCmd.Int("amount", 0, "Amount to send")
 
 	switch os.Args[1] {
-	// add command 일 때 파싱
-	case "add":
-		err := addBlockCmd.Parse(os.Args[2:])
-		blockchain.Handle(err)
-
-	// print command 일 때 파싱
-	case "print":
+	case "getbalance":
+		err := getBalanceCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "createblockchain":
+		err := createBlockchainCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
+	case "printchain":
 		err := printChainCmd.Parse(os.Args[2:])
-		blockchain.Handle(err)
-
+		if err != nil {
+			log.Panic(err)
+		}
+	case "send":
+		err := sendCmd.Parse(os.Args[2:])
+		if err != nil {
+			log.Panic(err)
+		}
 	default:
 		cli.printUsage()
 		runtime.Goexit()
 	}
 
-	if addBlockCmd.Parsed() {
-		// addBlockData가 없으면 Usage() 실행 후 종료.
-		if *addBlockData == "" {
-			addBlockCmd.Usage()
+	if getBalanceCmd.Parsed() {
+		if *getBalanceAddress == "" {
+			getBalanceCmd.Usage()
 			runtime.Goexit()
 		}
-		// 블록 추가.
-		cli.addBlock(*addBlockData)
+		cli.getBalance(*getBalanceAddress)
+	}
+
+	if createBlockchainCmd.Parsed() {
+		if *createBlockahinAddress == "" {
+			createBlockchainCmd.Usage()
+			runtime.Goexit()
+		}
+		cli.createBlockChain(*createBlockahinAddress)
 	}
 
 	// print command 일 때 printChain()을 실행.
 	if printChainCmd.Parsed() {
 		cli.printChain()
 	}
+
+	if sendCmd.Parsed() {
+		if *sendFrom == "" || *sendTo == "" || *sendAmount <= 0 {
+			sendCmd.Usage()
+			runtime.Goexit()
+		}
+		cli.send(*sendFrom, *sendTo, *sendAmount)
+	}
 }
 
 func main() {
 	defer os.Exit(0)
-	chain := blockchain.InitBlockChain()
-	// 메인이 종료되기 전에 DB를 종료.
-	defer chain.Database.Close()
 
-	cli := CommandLine{chain}
+	cli := CommandLine{}
 	cli.run()
 }

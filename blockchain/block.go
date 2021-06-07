@@ -2,24 +2,40 @@ package blockchain
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/gob"
 	"log"
 )
 
 // Block structure
 type Block struct {
-	Hash       []byte
-	Data       []byte
-	PrevHash   []byte
-	Nonce      int
-	Difficulty int
+	Hash []byte
+	// Data 자리에 Transactions를 넣는다.
+	Transactions []*Transaction
+	PrevHash     []byte
+	Nonce        int
+	Difficulty   int
 }
 
-// CreateBlock : data와 prevHash를 받아서 새로운 Hash를 생성한 블록을 생성한다.
+// HashTransactions : transaction들을 하나의 유니크한 해쉬로 변환한다.
+func (b *Block) HashTransactions() []byte {
+	var txHashes [][]byte
+	var txHash [32]byte
+
+	for _, tx := range b.Transactions {
+		txHashes = append(txHashes, tx.ID)
+	}
+	// concatenate txHashes
+	txHash = sha256.Sum256(bytes.Join(txHashes, []byte{}))
+
+	return txHash[:]
+}
+
+// CreateBlock : txs와 prevHash를 받아서 새로운 Hash를 생성한 블록을 생성한다.
 // difficulty를 조절한다. 여기서는 그냥 고정값으로 넣었다.
-func CreateBlock(data string, prevHash []byte) *Block {
+func CreateBlock(txs []*Transaction, prevHash []byte) *Block {
 	difficulty := 12
-	block := &Block{[]byte{}, []byte(data), prevHash, 0, difficulty}
+	block := &Block{[]byte{}, txs, prevHash, 0, difficulty}
 
 	// PoW 조건에 맞는 블록을 생성한다.
 	pow := NewProof(block)
@@ -33,8 +49,9 @@ func CreateBlock(data string, prevHash []byte) *Block {
 }
 
 // Genesis : 체인의 맨 처음 블록이다. prevHash 값이 비어있다.
-func Genesis() *Block {
-	return CreateBlock("Genesis", []byte{})
+// coinbase를 첫 블록으로 넣는다.
+func Genesis(coinbase *Transaction) *Block {
+	return CreateBlock([]*Transaction{coinbase}, []byte{})
 }
 
 // Serialize : BadgerDB 에 값을 넣기 위해 byte배열로 바꿔준다.

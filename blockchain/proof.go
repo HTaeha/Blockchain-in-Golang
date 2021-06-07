@@ -45,12 +45,12 @@ func NewProof(b *Block) *ProofOfWork {
 	return pow
 }
 
-// InitData : PrevHash, Data, nonce, Difficulty 를 합쳐 데이터를 만든다.
+// InitData : PrevHash, Data, nonce, Difficulty 를 합쳐 데이터를 만든다. (concatenate)
 func (pow *ProofOfWork) InitData(nonce, Difficulty int) []byte {
 	data := bytes.Join(
 		[][]byte{
 			pow.Block.PrevHash,
-			pow.Block.Data,
+			pow.Block.HashTransactions(),
 			ToHex(int64(nonce)),
 			ToHex(int64(Difficulty)),
 		},
