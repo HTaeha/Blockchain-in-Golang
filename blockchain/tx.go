@@ -1,5 +1,11 @@
 package blockchain
 
+import (
+	"bytes"
+
+	"github.com/HTaeha/Blockchain-in-Golang/wallet"
+)
+
 // TxOutput : Transaction Output
 // Indivisible - 나눌 수 없는, 불가분의
 // Output은 쪼갤 수 없다.
@@ -10,8 +16,8 @@ type TxOutput struct {
 	Value int
 	// 공개키 : token을 언락하기 위해 필요하다. (value의 안쪽을 보기 위해)
 	// Bitcoin에서는 Pubkey가 복잡한 스크립트 언어로 되어 있다.
-	// User's account, address
-	PubKey string
+	// address의 public key hash 부분.
+	PubKeyHash []byte
 }
 
 // TxInput : Transaction Input
@@ -25,15 +31,35 @@ type TxInput struct {
 	Out int
 	// Signature : TxOutput의 PubKey와 비슷한 역할.
 	// User's account, address
-	Sig string
+	Signature []byte
+	// 소유자 지갑의 public key.
+	PubKey []byte
 }
 
-// CanUnlock : input의 Sig(address)를 알고 있는 사람만 unlock할 수 있다.
-func (in *TxInput) CanUnlock(data string) bool {
-	return in.Sig == data
+// NewTXOutput : 새로운 TXO를 생성해서 리턴.
+func NewTXOutput(value int, address string) *TxOutput {
+	txo := &TxOutput{value, nil}
+	txo.Lock([]byte(address))
+
+	return txo
 }
 
-// CanBeUnlocked : output의 PubKey(address)를 알고 있는 사람만 unlock할 수 있다.
-func (out *TxOutput) CanBeUnlocked(data string) bool {
-	return out.PubKey == data
+// UsesKey : TxInput의 public key hash와 pubKeyHash인자가 같은지 판별.
+func (in *TxInput) UsesKey(pubKeyHash []byte) bool {
+	lockingHash := wallet.PublicKeyHash(in.PubKey)
+
+	return bytes.Compare(lockingHash, pubKeyHash) == 0
+}
+
+// Lock : Output의 PubKeyHash를 할당.
+func (out *TxOutput) Lock(address []byte) {
+	pubKeyHash := wallet.Base58Decode(address)
+	// 4 : version byte
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
+	out.PubKeyHash = pubKeyHash
+}
+
+// IsLockedWithKey : TxOutput의 public key hash와 pubKeyHash가 같은지 판별.
+func (out *TxOutput) IsLockedWithKey(pubKeyHash []byte) bool {
+	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
 }

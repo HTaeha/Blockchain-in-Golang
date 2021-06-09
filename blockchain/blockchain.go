@@ -1,7 +1,10 @@
 package blockchain
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -50,6 +53,7 @@ func InitBlockChain(address string) *BlockChain {
 	}
 
 	opts := badger.DefaultOptions(dbPath)
+	opts.Logger = nil
 	// store key and metadata
 	opts.Dir = dbPath
 	// store all values
@@ -94,6 +98,7 @@ func ContinueBlockChain(address string) *BlockChain {
 	var lastHash []byte
 
 	opts := badger.DefaultOptions(dbPath)
+	opts.Logger = nil
 	// store key and metadata
 	opts.Dir = dbPath
 	// store all values
@@ -181,7 +186,7 @@ func (iter *BlockChainIterator) Next() *Block {
 
 // FindUnspentTransactions : 사용하지 않은 Transaction들을 찾는다.
 // Transaction에 사용하지 않은 output이 한개라도 있으면 추가해서 반환한다.
-func (chain *BlockChain) FindUnspentTransactions(address string) []Transaction {
+func (chain *BlockChain) FindUnspentTransactions(pubKeyHash []byte) []Transaction {
 	var unspentTxs []Transaction
 
 	// key : string
@@ -208,7 +213,7 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []Transaction {
 					}
 				}
 				// 사용하지 않았고 unlock할 수 있다면 unspentTxs에 추가.
-				if out.CanBeUnlocked(address) {
+				if out.IsLockedWithKey(pubKeyHash) {
 					unspentTxs = append(unspentTxs, *tx)
 					// 강의에서는 break문이 없다.
 					// tx를 unspentTxs에 추가했다면 다음 tx로 넘어가야하지 않을까?
@@ -221,7 +226,7 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []Transaction {
 				// Output을 찾기 위해 Input을 돈다.
 				// inTxID를 ID로 가지는 Tx 의 in.Out 번째 output은 사용한 output이다.
 				for _, in := range tx.Inputs {
-					if in.CanUnlock(address) {
+					if in.UsesKey(pubKeyHash) {
 						inTxID := hex.EncodeToString(in.ID)
 						spentTXOs[inTxID] = append(spentTXOs[inTxID], in.Out)
 					}
@@ -239,14 +244,14 @@ func (chain *BlockChain) FindUnspentTransactions(address string) []Transaction {
 
 // FindUTXO : 사용하지 않은 모든 output을 리턴한다.
 // UTXOs의 Value를 모두 더하면 총잔고가 된다.
-func (chain *BlockChain) FindUTXO(address string) []TxOutput {
+func (chain *BlockChain) FindUTXO(pubKeyHash []byte) []TxOutput {
 	var UTXOs []TxOutput
-	unspentTransactions := chain.FindUnspentTransactions(address)
+	unspentTransactions := chain.FindUnspentTransactions(pubKeyHash)
 
 	// UTXO중에 unlock할 수 있는(해당 address 소유자) 것만 모아서 리턴.
 	for _, tx := range unspentTransactions {
 		for _, out := range tx.Outputs {
-			if out.CanBeUnlocked(address) {
+			if out.IsLockedWithKey(pubKeyHash) {
 				UTXOs = append(UTXOs, out)
 			}
 
@@ -257,9 +262,9 @@ func (chain *BlockChain) FindUTXO(address string) []TxOutput {
 
 // FindSpendableOutputs : coin based transaction이 아닌 보통의 transaction을 생성한다.
 // address로 amount만큼의 코인을 보낸다.
-func (chain *BlockChain) FindSpendableOutputs(address string, amount int) (int, map[string][]int) {
+func (chain *BlockChain) FindSpendableOutputs(pubKeyHash []byte, amount int) (int, map[string][]int) {
 	unspentOuts := make(map[string][]int)
-	unspentTxs := chain.FindUnspentTransactions(address)
+	unspentTxs := chain.FindUnspentTransactions(pubKeyHash)
 	accumulated := 0
 
 Work:
@@ -271,7 +276,7 @@ Work:
 		for outIdx, out := range tx.Outputs {
 			// unlock할 수 있어야 하고 보내고 싶은 코인의 수가 UTXO로부터 모든 금액보다 클 때
 			// 보낼 금액이 부족할 때 (accumulated를 더 증가시켜야 함.)
-			if out.CanBeUnlocked(address) && accumulated < amount {
+			if out.IsLockedWithKey(pubKeyHash) && accumulated < amount {
 				accumulated += out.Value
 				unspentOuts[txID] = append(unspentOuts[txID], outIdx)
 
@@ -284,4 +289,59 @@ Work:
 	}
 
 	return accumulated, unspentOuts
+}
+
+// FindTransaction : ID 와 일치하느 Tx를 찾는다.
+func (chain *BlockChain) FindTransaction(ID []byte) (Transaction, error) {
+	iter := chain.Iterator()
+
+	for {
+		block := iter.Next()
+
+		for _, tx := range block.Transactions {
+			// 원하는 Tx 발견.
+			if bytes.Compare(tx.ID, ID) == 0 {
+				return *tx, nil
+			}
+		}
+
+		if len(block.PrevHash) == 0 {
+			break
+		}
+	}
+
+	// 블록을 전부 돌았는데 같은 ID를 가진 Tx가 없다.
+	return Transaction{}, errors.New("Transaction does not exist")
+}
+
+// SignTransaction : Tx에 sign을 하는 메소드.
+func (chain *BlockChain) SignTransaction(tx *Transaction, privKey ecdsa.PrivateKey) {
+	// key : ID (hex)
+	// value : Transaction
+	prevTXs := make(map[string]Transaction)
+
+	// 해당 Tx의 모든 인풋을 돌면서 그 인풋이 사용한 이전 Tx를 찾아 prevTXs에 저장한다.
+	for _, in := range tx.Inputs {
+		prevTX, err := chain.FindTransaction(in.ID)
+		Handle(err)
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	tx.Sign(privKey, prevTXs)
+}
+
+// VerifyTransaction : Tx를 검증하는 메소드.
+func (chain *BlockChain) VerifyTransaction(tx *Transaction) bool {
+	// key : ID (hex)
+	// value : Transaction
+	prevTXs := make(map[string]Transaction)
+
+	// 해당 Tx의 모든 인풋을 돌면서 그 인풋이 사용한 이전 Tx를 찾아 prevTXs에 저장한다.
+	for _, in := range tx.Inputs {
+		prevTX, err := chain.FindTransaction(in.ID)
+		Handle(err)
+		prevTXs[hex.EncodeToString(prevTX.ID)] = prevTX
+	}
+
+	return tx.Verify(prevTXs)
 }

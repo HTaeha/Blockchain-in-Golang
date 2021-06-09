@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -49,22 +48,25 @@ func (cli *CommandLine) printChain() {
 
 		fmt.Printf("Previous Hash: %x\n", block.PrevHash)
 		fmt.Printf("Hash: %x\n", block.Hash)
-		for _, tx := range block.Transactions {
-			txID := hex.EncodeToString(tx.ID)
-			fmt.Printf("Transaction ID : %s\n", txID)
-			fmt.Println("Transactions Inputs")
-			for _, in := range tx.Inputs {
-				fmt.Printf("ID: %x, Out: %d, Sig: %s\n", in.ID, in.Out, in.Sig)
-			}
-			fmt.Println("Transactions Outputs")
-			for _, out := range tx.Outputs {
-				fmt.Printf("Value: %d, PubKey: %s\n", out.Value, out.PubKey)
-			}
-		}
+		// for _, tx := range block.Transactions {
+		// 	txID := hex.EncodeToString(tx.ID)
+		// 	fmt.Printf("Transaction ID : %s\n", txID)
+		// 	fmt.Println("Transactions Inputs")
+		// 	for _, in := range tx.Inputs {
+		// 		fmt.Printf("ID: %x, Out: %d, Sig: %s\n", in.ID, in.Out, in.Sig)
+		// 	}
+		// 	fmt.Println("Transactions Outputs")
+		// 	for _, out := range tx.Outputs {
+		// 		fmt.Printf("Value: %d, PubKey: %s\n", out.Value, out.PubKey)
+		// 	}
+		// }
 
 		// Validate 과정은 매우 빠르게 처리된다.
 		pow := blockchain.NewProof(block)
 		fmt.Printf("PoW: %s\n", strconv.FormatBool(pow.Validate()))
+		for _, tx := range block.Transactions {
+			fmt.Println(tx)
+		}
 		fmt.Println()
 
 		if len(block.PrevHash) == 0 {
@@ -74,7 +76,12 @@ func (cli *CommandLine) printChain() {
 }
 
 // createBlockChain : 블록체인을 생성. (첫 블록체인)
+// address에 Base58로 디코딩 되는 숫자 스트링을 넣어야 한다.
+// 그렇지 않으면 블록체인이 생성되지 않음.
 func (cli *CommandLine) createBlockChain(address string) {
+	if !wallet.ValidateAddress(address) {
+		log.Panic("Address is not Valid")
+	}
 	chain := blockchain.InitBlockChain(address)
 	chain.Database.Close()
 	fmt.Println("Finished!")
@@ -82,13 +89,18 @@ func (cli *CommandLine) createBlockChain(address string) {
 
 // getBalance : 해당 address가 가지고 있는 코인 갯수를 보여준다.
 func (cli *CommandLine) getBalance(address string) {
+	if !wallet.ValidateAddress(address) {
+		log.Panic("Address is not Valid")
+	}
 	chain := blockchain.ContinueBlockChain(address)
 	defer chain.Database.Close()
 
 	balance := 0
+	pubKeyHash := wallet.Base58Decode([]byte(address))
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-4]
 
 	// address의 사용하지 않은 output들.
-	UTXOs := chain.FindUTXO(address)
+	UTXOs := chain.FindUTXO(pubKeyHash)
 
 	for _, out := range UTXOs {
 		balance += out.Value
@@ -99,6 +111,12 @@ func (cli *CommandLine) getBalance(address string) {
 
 // send : from이 to에게 amount만큼의 코인을 보낸다.
 func (cli *CommandLine) send(from, to string, amount int) {
+	if !wallet.ValidateAddress(to) {
+		log.Panic("Address is not Valid")
+	}
+	if !wallet.ValidateAddress(from) {
+		log.Panic("Address is not Valid")
+	}
 	chain := blockchain.ContinueBlockChain(from)
 	defer chain.Database.Close()
 

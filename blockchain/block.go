@@ -18,6 +18,7 @@ type Block struct {
 }
 
 // HashTransactions : transaction들을 하나의 유니크한 해쉬로 변환한다.
+// Block의 Hash 만들 때 사용됨.
 func (b *Block) HashTransactions() []byte {
 	var txHashes [][]byte
 	var txHash [32]byte

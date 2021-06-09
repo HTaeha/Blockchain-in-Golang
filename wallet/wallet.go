@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -39,7 +40,35 @@ func (w Wallet) Address() []byte {
 	fmt.Printf("pub hash: %x\n", pubHash)
 	fmt.Printf("address: %s\n", address)
 
+	fmt.Printf("fullHash: %x\n", fullHash)
+	fmt.Printf("checksum: %x\n", checksum)
+	fmt.Printf("version: %x\n", versionedHash)
+
 	return address
+}
+
+// Address: 1EwsppsVck2B5Ndf7nPyHi8uYtEhK44ndm
+// FullHash: 0098fa85f9e6b04827b2ce6db7e8e18ff8e9882c99eefb8610
+// [Version] 00
+// [Pub Key Hash] 98fa85f9e6b04827b2ce6db7e8e18ff8e9882c99
+// [CheckSum] eefb8610
+// FullHash = Version + Pub Key Hash + CheckSum
+
+// ValidateAddress : Address의 유효성을 검증한다.
+// 1 : address의 checksum 부분 (address를 base58로 디코드하여 나온 배열에서 마지막 checksumLength만큼의 부분)
+// 2 : address의 version부분과 pubKeyHash 부분을 뽑아서 만든 checksum 부분.
+// 1과 2가 같은지 확인.
+func ValidateAddress(address string) bool {
+	// 1 : address의 checksum 부분
+	pubKeyHash := Base58Decode([]byte(address))
+	actualChecksum := pubKeyHash[len(pubKeyHash)-checksumLength:]
+
+	// 2 : address의 version부분과 pubKeyHash 부분을 뽑아서 만든 checksum 부분.
+	version := pubKeyHash[0]
+	pubKeyHash = pubKeyHash[1 : len(pubKeyHash)-checksumLength]
+	targetChecksum := Checksum(append([]byte{version}, pubKeyHash...))
+
+	return bytes.Compare(actualChecksum, targetChecksum) == 0
 }
 
 // NewKeyPair : 새로운 키페어를 만든다.
@@ -47,12 +76,14 @@ func (w Wallet) Address() []byte {
 func NewKeyPair() (ecdsa.PrivateKey, []byte) {
 	curve := elliptic.P256()
 
+	// private key는 랜덤하게 뽑혀진 256bit의 숫자이다.
 	private, err := ecdsa.GenerateKey(curve, rand.Reader)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	// X, Y가 concatenate 되어 pub이 됨.
+	// private key로부터 public key를 생성함.
 	pub := append(private.PublicKey.X.Bytes(), private.PublicKey.Y.Bytes()...)
 	return *private, pub
 }
